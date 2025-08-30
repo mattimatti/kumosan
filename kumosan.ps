@@ -1,0 +1,519 @@
+//@version=5
+indicator("KumoSAN", overlay=true)
+
+// --- Ichimoku lengths
+convLen=input.int(9,"Tenkan",minval=1)
+baseLen=input.int(26,"Kijun",minval=1)
+spanBLen=input.int(52,"Senkou B",minval=1)
+
+// --- Visual SHORT
+showShort=input.bool(false,"Attiva sezione SHORT")
+showShortMarker=input.bool(false,"Mostra marker SHORT")
+
+// --- Stable filter
+excludeStable=input.bool(true,"Escludi STABLECOINS (base asset)")
+f_ends(s,sfx)=>
+    ls=str.length(s)
+    lf=str.length(sfx)
+    lf<=ls and str.substring(s,ls-lf,ls)==sfx
+f_clean(sym)=>
+    _s=sym
+    _s:=str.replace_all(_s,".P","")
+    _s:=str.replace_all(_s,"PERP","")
+    _s:=str.replace_all(_s,"-","")
+    _s
+f_base(sym)=>
+    _s=f_clean(sym)
+    if f_ends(_s,"USDT")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"USDC")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"BUSD")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"FDUSD")
+        str.substring(_s,0,str.length(_s)-5)
+    else if f_ends(_s,"TUSD")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"USDP")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"DAI")
+        str.substring(_s,0,str.length(_s)-3)
+    else if f_ends(_s,"FRAX")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"SUSD")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"USDE")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"PYUSD")
+        str.substring(_s,0,str.length(_s)-5)
+    else if f_ends(_s,"GUSD")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"LUSD")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"EURS")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"EURT")
+        str.substring(_s,0,str.length(_s)-4)
+    else if f_ends(_s,"USD")
+        str.substring(_s,0,str.length(_s)-3)
+    else if f_ends(_s,"EUR")
+        str.substring(_s,0,str.length(_s)-3)
+    else
+        _s
+baseSym=f_base(syminfo.ticker)
+isStableBase=false
+if baseSym=="USDT" or baseSym=="USDC" or baseSym=="DAI" or baseSym=="TUSD" or baseSym=="BUSD" or baseSym=="FDUSD" or baseSym=="PYUSD" or baseSym=="GUSD" or baseSym=="LUSD" or baseSym=="FRAX" or baseSym=="SUSD" or baseSym=="USDP" or baseSym=="USDE" or baseSym=="EURS" or baseSym=="EURT" or baseSym=="UST" or baseSym=="USTC"
+    isStableBase:=true
+okAsset=true
+if excludeStable and isStableBase
+    okAsset:=false
+showShortOK=false
+if showShort and okAsset
+    showShortOK:=true
+
+
+
+
+showLongLines=input.bool(false,"Mostra linee LONG (Entry/SL/TP1)")
+
+
+// --- Kumo thickness params
+th_pct=input.float(1.0,"Soglia Kumo Thin (% prezzo)",step=0.1)
+useATR=input.bool(true,"Usa normalizzazione su ATR per thinness")
+atrLen=input.int(20,"ATR len (thinness/ATR%)",minval=1)
+th_atrMul=input.float(0.5,"Soglia Kumo Thin (x ATR)",step=0.1)
+
+// --- Flatness params
+flatLen=input.int(10,"Lunghezza flatness (bar)",minval=2)
+flatMode=input.string("range","Metodo flatness",options=["range","slope","equal"])
+flatTolPct=input.float(0.20,"Tolleranza % su span",step=0.01)
+flatTolAtrMul=input.float(0.05,"Tolleranza x ATR",step=0.01)
+
+// --- Trend / Momentum filters
+requireTK=input.bool(true,"Richiedi Tenkan > Kijun")
+requireChikou=input.bool(true,"Richiedi Chikou libera (> high[26])")
+useRVOL=input.bool(false,"Richiedi RVOL minimo")
+rvolLen=input.int(20,"RVOL lookback",minval=5)
+rvolMin=input.float(1.5,"RVOL minimo",step=0.1)
+emaFastLen=input.int(50,"EMA fast (trend)",minval=1)
+emaSlowLen=input.int(200,"EMA slow (trend)",minval=1)
+
+// --- ATR% trading window
+atrMin=input.float(0.8,"ATR% minimo",step=0.1)
+atrMax=input.float(12.0,"ATR% massimo",step=0.1)
+
+// --- Visual
+showBackgrounds=input.bool(true,"Evidenziazioni di sfondo")
+showAfterSignal=input.bool(false,"Mostra SL/TP solo dopo segnale")
+
+// === Ichimoku baseline calcs
+tenkan=(ta.highest(high,convLen)+ta.lowest(low,convLen))/2.0
+kijun=(ta.highest(high,baseLen)+ta.lowest(low,baseLen))/2.0
+spanA=(tenkan+kijun)/2.0
+spanB=(ta.highest(high,spanBLen)+ta.lowest(low,spanBLen))/2.0
+upperKumo=math.max(spanA,spanB)
+lowerKumo=math.min(spanA,spanB)
+
+// === Kumo thickness
+kumo_dist=math.abs(spanA-spanB)
+kumo_pct_price=kumo_dist/close*100.0
+atr=ta.atr(atrLen)
+atrPct=atr/close*100.0
+kumo_atr_ratio=useATR?(kumo_dist/atr):na
+thin_by_pct=kumo_pct_price<=th_pct
+thin_by_atr=useATR?(kumo_atr_ratio<=th_atrMul):false
+is_thin=useATR?(thin_by_pct and thin_by_atr):thin_by_pct
+
+// --- Flatness robusta
+f_tolAbs(src)=>basis=math.max(math.abs(src),syminfo.mintick),tolPct=basis*(flatTolPct/100.0),tolAtr=ta.atr(atrLen)*flatTolAtrMul,math.max(syminfo.mintick,math.max(tolPct,tolAtr))
+f_flat_range(src,len)=>hi=ta.highest(src,len),lo=ta.lowest(src,len),(hi-lo)<=f_tolAbs(src)
+f_flat_slope(src,len)=>avgDelta=ta.sma(math.abs(src-src[1]),len),avgDelta<=f_tolAbs(src)
+f_flat_equal(src,len)=>eq=math.abs(src-src[1])<=f_tolAbs(src),ta.barssince(not eq)>=len-1
+f_isFlat_any(src,len)=>flatMode=="range"?f_flat_range(src,len):flatMode=="slope"?f_flat_slope(src,len):f_flat_equal(src,len)
+is_flat_ssb=f_isFlat_any(spanB,flatLen)
+is_flat_ssa=f_isFlat_any(spanA,flatLen)
+is_flat_any=is_flat_ssb or is_flat_ssa
+
+// === Trend / RVOL / Chikou
+emaFast=ta.ema(close,emaFastLen)
+emaSlow=ta.ema(close,emaSlowLen)
+slope200=emaSlow-emaSlow[1]
+trendOK=close>emaFast and slope200>=0
+rvol=volume/ta.sma(volume,rvolLen)
+chikou_free=close>high[26]
+tk_ok=not requireTK or (tenkan>kijun)
+chi_ok=not requireChikou or chikou_free
+rvol_ok=not useRVOL or (rvol>=rvolMin)
+
+// === ATR% window
+atr_ok=atrPct>=atrMin and atrPct<=atrMax
+atr_warn=(atrPct>=atrMin*0.95 and atrPct<atrMin) or (atrPct<=atrMax*1.05 and atrPct>atrMax)
+
+// === Pre-setup (compressione) e trigger
+in_kumo=close<=upperKumo and close>=lowerKumo
+pre_setup=is_thin and is_flat_any and in_kumo and trendOK
+cross_up_kumo=ta.crossover(close,upperKumo)
+
+
+
+
+// === Livelli dinamici breakout
+winLen=input.int(48,"Finestra swing per livelli",minval=5)
+volMult=input.float(1.2,"Min Volume × SMA20 per trigger",step=0.1)
+useFiltersShort=input.bool(true,"Short richiede filtri trend/ATR/RVOL")
+barsDelay=input.int(1,"Escludi barre recenti dal calcolo livelli",minval=1)
+volOK=volume>=ta.sma(volume,20)*volMult
+resLevel=ta.highest(high,winLen)[barsDelay]
+supLevel=ta.lowest(low,winLen)[barsDelay]
+
+// === Condizioni ingresso (con gating okAsset via if/else)
+breakout_long=false
+breakdown_short_aggr=false
+if okAsset
+    breakout_long:=close>resLevel and cross_up_kumo and trendOK and atr_ok and tk_ok and chi_ok and rvol_ok and volOK
+    breakdown_short_aggr:=close<supLevel and (useFiltersShort?(atr_ok and volOK):true)
+else
+    breakout_long:=false
+    breakdown_short_aggr:=false
+
+
+// === Stato ARMED (tutte le precondizioni ok, manca solo il break)
+armed_ready=false
+if pre_setup
+    condTK = (not requireTK) or tk_ok
+    condChi = (not requireChikou) or chi_ok
+    condRV = (not useRVOL) or rvol_ok
+    if trendOK and atr_ok and condTK and condChi and condRV
+        if not breakout_long
+            armed_ready:=true
+        else
+            armed_ready:=false
+    else
+        armed_ready:=false
+else
+    armed_ready:=false
+
+// --- Stop Loss proposti
+slLongATR=input.float(1.0,"SL Long: ATR multiplo",step=0.1,minval=0.1)
+slShortATR=input.float(1.0,"SL Short: ATR multiplo",step=0.1,minval=0.1)
+slLong=resLevel-atr*slLongATR
+slShort=supLevel+atr*slShortATR
+
+// --- Take Profit 1
+tpLongATR=input.float(1.5,"TP1 Long: ATR multiplo",step=0.1,minval=0.1)
+tpShortATR=input.float(1.5,"TP1 Short: ATR multiplo",step=0.1,minval=0.1)
+tpLong=resLevel+atr*tpLongATR
+tpShort=supLevel-atr*tpShortATR
+
+// --- Risk/Reward su TP1
+rrLong=(tpLong-resLevel)/(resLevel-slLong)
+rrShort=(supLevel-tpShort)/(slShort-supLevel)
+
+
+
+
+
+// === Plot livelli, SL, TP1 (con opzione post-segnale)
+plot(resLevel,"Entry Long",color=color.new(color.lime,0),linewidth=2,style=plot.style_linebr)
+plot(showShortOK?supLevel:na,"Entry Short",color=color.new(color.red,0),linewidth=2,style=plot.style_linebr)
+plot(showAfterSignal?(breakout_long?slLong:na):slLong,"SL Long",color=color.new(color.white,100),linewidth=2,style=plot.style_linebr)
+plot(showShortOK?(showAfterSignal?(breakdown_short_aggr?slShort:na):slShort):na,"SL Short",color=color.new(color.red,60),linewidth=2,style=plot.style_linebr)
+plot(showAfterSignal?(breakout_long?tpLong:na):tpLong,"TP1 Long",color=color.new(color.white,100),linewidth=2,style=plot.style_linebr)
+plot(showShortOK?(showAfterSignal?(breakdown_short_aggr?tpShort:na):tpShort):na,"TP1 Short",color=color.new(color.red,0),linewidth=2,style=plot.style_linebr)
+
+// === Marker segnali
+plotshape(okAsset and breakout_long,title="BREAKOUT LONG",style=shape.triangleup,location=location.belowbar,size=size.large,color=color.new(color.lime,0),text="LONG")
+plotshape(showShortOK and breakdown_short_aggr and okAsset,title="BREAKDOWN SHORT",style=shape.triangledown,location=location.abovebar,size=size.large,color=color.new(color.red,0),text="SHORT")
+
+
+
+// === PRE-SETUP sticky: durata e invalidazioni
+psHoldBars=input.int(5,"PRESETUP: hold (bar)",minval=1,maxval=50)
+
+// invalidazioni "forti" configurabili
+invOppKumo=input.bool(false,"Invalidante: close < lowerKumo")
+invTrendKO=input.bool(false,"Invalidante: Trend EMA KO")
+invATRhard=input.bool(false,"Invalidante: ATR% fuori (±5%)")
+invThinFlatLost=input.bool(false,"Invalidante: persi sia THIN che FLAT")
+
+
+
+invalid_hard=false
+if invOppKumo and close<lowerKumo
+    invalid_hard:=true
+else if invTrendKO and not trendOK
+    invalid_hard:=true
+else if invATRhard and (atrPct<atrMin*0.95 or atrPct>atrMax*1.05)
+    invalid_hard:=true
+else if invThinFlatLost
+    if not is_thin and not is_flat_any
+        invalid_hard:=true
+    else
+        invalid_hard:=invalid_hard
+else
+    invalid_hard:=invalid_hard
+
+// stato sticky con scadenza
+var bool ps_active=false
+var int ps_expire=na
+var int ps_start=na
+
+// ingresso sticky: appena si verifica pre_setup (solo se asset ok)
+if not ps_active
+    if okAsset and pre_setup
+        ps_active:=true
+        ps_expire:=bar_index+psHoldBars
+        ps_start:=bar_index
+else
+    // gestione uscita: invalidazione forte oppure timeout
+    if invalid_hard
+        ps_active:=false
+        ps_expire:=na
+        ps_start:=na
+    else
+        if bar_index>ps_expire
+            ps_active:=false
+            ps_expire:=na
+            ps_start:=na
+
+
+// TTL (bar rimanenti) per tabella — versione robusta con if/else
+var int ps_ttl = na
+if ps_active
+    _ttl = ps_expire - bar_index
+    if _ttl < 0
+        ps_ttl := 0
+    else
+        ps_ttl := _ttl
+else
+    ps_ttl := na
+
+if ps_active
+    ps_ttl:=ps_expire-bar_index
+
+// Alert opzionali (entrata/uscita sticky)
+enablePSAlerts=input.bool(true,"Alert: PRE-SETUP sticky (enter/exit)")
+var bool ps_prev=false
+ps_enter=false
+ps_exit=false
+if ps_active and not ps_prev
+    ps_enter:=true
+else
+    ps_enter:=false
+if not ps_active and ps_prev
+    ps_exit:=true
+else
+    ps_exit:=false
+ps_prev:=ps_active
+alertcondition(enablePSAlerts and ps_enter,title="PRE-SETUP ACTIVE",message="Presetup sticky attivo. {{ticker}} @ {{interval}}")
+alertcondition(enablePSAlerts and ps_exit,title="PRE-SETUP EXPIRED",message="Presetup sticky terminato (invalidazione/timeout). {{ticker}} @ {{interval}}")
+
+
+
+
+// === Background
+bgcolor(showBackgrounds and (pre_setup or ps_active)?color.new(color.fuchsia,86):na)
+
+
+// === Background
+bgcolor(showBackgrounds and (okAsset and breakout_long)?color.new(color.red,86):na)
+
+
+// === Alerts (gated su okAsset)
+alertcondition(okAsset and breakout_long,title="BREAKOUT LONG",message="Breakout long confermato.")
+alertcondition(showShortOK and okAsset and breakdown_short_aggr,title="BREAKDOWN SHORT",message="Breakdown short aggressivo.")
+tp1_long_hit=high>=tpLong
+tp1_short_hit=low<=tpShort
+alertcondition(okAsset and tp1_long_hit,title="TP1 LONG HIT",message="TP1 Long raggiunto.")
+alertcondition(showShortOK and okAsset and tp1_short_hit,title="TP1 SHORT HIT",message="TP1 Short raggiunto.")
+
+// === Tabella debug con semaforo (sx e dx)
+showTable=input.bool(true,"Mostra tabella")
+tblPos=input.string("top_left","Posizione tabella",options=["top_right","top_left","bottom_right","bottom_left"])
+f_pos(p)=>p=="top_right"?position.top_right:p=="top_left"?position.top_left:p=="bottom_right"?position.bottom_right:position.bottom_left
+f_light(ok,warn)=>ok?color.lime:warn?color.yellow:color.red
+f_colbg(ok,warn)=>ok?color.new(color.lime,0):warn?color.new(color.yellow,0):color.new(color.red,0)
+
+var table t=na
+var string _p=na
+var int _rows=0
+rowsCount=showShort?18:14
+if barstate.isfirst or na(t) or tblPos!=_p or rowsCount!=_rows
+    if not na(t)
+        table.delete(t)
+    t:=table.new(f_pos(tblPos),2,rowsCount,border_width=1)
+    _p:=tblPos
+    _rows:=rowsCount
+
+if showTable and barstate.islast and not na(t)
+    table.cell(t,0,0,"PRE-SETUP",text_color=color.white,bgcolor=f_light(ps_active,false))
+    table.cell(t,1,0,ps_active?("YES (TTL "+str.tostring(ps_ttl)+")"):"NO",text_color=color.white,bgcolor=f_colbg(ps_active,false))
+    table.cell(t,0,1,"IN KUMO",text_color=color.white,bgcolor=f_light(in_kumo,false))
+    table.cell(t,1,1,in_kumo?"YES":"NO",text_color=color.white,bgcolor=f_colbg(in_kumo,false))
+    table.cell(t,0,2,"KUMO THIN",text_color=color.white,bgcolor=f_light(is_thin,false))
+    table.cell(t,1,2,str.tostring(kumo_pct_price,"#.##")+"%",text_color=color.white,bgcolor=f_colbg(is_thin,false))
+    table.cell(t,0,3,"FLAT SSA/SSB",text_color=color.white,bgcolor=f_light(is_flat_any,false))
+    table.cell(t,1,3,is_flat_any?"YES":"NO",text_color=color.white,bgcolor=f_colbg(is_flat_any,false))
+    table.cell(t,0,4,"TREND EMA",text_color=color.white,bgcolor=f_light(trendOK,false))
+    table.cell(t,1,4,trendOK?"YES":"NO",text_color=color.white,bgcolor=f_colbg(trendOK,false))
+    table.cell(t,0,5,"TK>KJ",text_color=color.white,bgcolor=f_light(tk_ok,false))
+    table.cell(t,1,5,tk_ok?"YES":"NO",text_color=color.white,bgcolor=f_colbg(tk_ok,false))
+    table.cell(t,0,6,"CHIKOU OK",text_color=color.white,bgcolor=f_light(chi_ok,false))
+    table.cell(t,1,6,chi_ok?"YES":"NO",text_color=color.white,bgcolor=f_colbg(chi_ok,false))
+    table.cell(t,0,7,"RVOL",text_color=color.white,bgcolor=f_light(rvol_ok,false))
+    table.cell(t,1,7,useRVOL?str.tostring(rvol,"#.##")+"x":"n/a",text_color=color.white,bgcolor=f_colbg(rvol_ok,false))
+    table.cell(t,0,8,"ATR% RANGE",text_color=color.white,bgcolor=f_light(atr_ok,atr_warn))
+    table.cell(t,1,8,str.tostring(atrPct,"#.##")+"%",text_color=color.white,bgcolor=f_colbg(atr_ok,atr_warn))
+    table.cell(t,0,9,"ARMED",text_color=color.white,bgcolor=f_light(armed_ready,false))
+    table.cell(t,1,9,armed_ready?"YES":"NO",text_color=color.white,bgcolor=f_colbg(armed_ready,false))
+    table.cell(t,0,10,"ENTRY LONG",text_color=color.white,bgcolor=f_light(close>resLevel,false))
+    table.cell(t,1,10,str.tostring(resLevel,"#.#####"),text_color=color.lime,bgcolor=f_colbg(close>resLevel,false))
+    table.cell(t,0,11,"SL LONG",text_color=color.white,bgcolor=f_light(close>slLong,false))
+    table.cell(t,1,11,str.tostring(slLong,"#.#####"),text_color=color.lime,bgcolor=f_colbg(close>slLong,false))
+    table.cell(t,0,12,"TP1 LONG",text_color=color.white,bgcolor=f_light(close<tpLong,false))
+    table.cell(t,1,12,str.tostring(tpLong,"#.#####"),text_color=color.lime,bgcolor=f_colbg(close<tpLong,false))
+    table.cell(t,0,13,"R:R LONG",text_color=color.white,bgcolor=f_light(rrLong>1.5,rrLong>1.0))
+    table.cell(t,1,13,str.tostring(rrLong,"#.##"),text_color=color.lime,bgcolor=f_colbg(rrLong>1.5,rrLong>1.0))
+    if showShort
+        table.cell(t,0,14,"ENTRY SHORT",text_color=color.white,bgcolor=f_light(close<supLevel,false))
+        table.cell(t,1,14,str.tostring(supLevel,"#.#####"),text_color=color.red,bgcolor=f_colbg(close<supLevel,false))
+        table.cell(t,0,15,"SL SHORT",text_color=color.white,bgcolor=f_light(close<slShort,false))
+        table.cell(t,1,15,str.tostring(slShort,"#.#####"),text_color=color.red,bgcolor=f_colbg(close<slShort,false))
+        table.cell(t,0,16,"TP1 SHORT",text_color=color.white,bgcolor=f_light(close>tpShort,false))
+        table.cell(t,1,16,str.tostring(tpShort,"#.#####"),text_color=color.red,bgcolor=f_colbg(close>tpShort,false))
+        table.cell(t,0,17,"R:R SHORT",text_color=color.white,bgcolor=f_light(rrShort>1.5,rrShort>1.0))
+        table.cell(t,1,17,str.tostring(rrShort,"#.##"),text_color=color.red,bgcolor=f_colbg(rrShort>1.5,rrShort>1.0))
+
+
+// Inputs essenziali
+bool strong  = input.bool(true,  "Strong closes (>50% body fuori)")
+int  normLen = input.int(100,    "Normalization length", minval=1)
+int  lenBox  = input.int(14,     "Box detection len",    minval=1)
+int  minDur  = input.int(10,     "Min durata canale",    minval=1)
+int  transp  = input.int(82,     "Trasparenza BG (0-100)", minval=0, maxval=100)
+
+// Normalizzazione prezzo
+float lowestLow   = ta.lowest(low,  normLen)
+float highestHigh = ta.highest(high, normLen)
+float priceRange  = highestHigh - lowestLow
+float norm        = 0.0
+if priceRange != 0.0
+    norm := (close - lowestLow) / priceRange
+else
+    norm := 0.0
+
+// Volatilità normalizzata + oscillatori di canale
+float vol    = ta.stdev(norm, 14)
+float upper  = (ta.highestbars(vol, lenBox + 1) + lenBox) / lenBox
+float lower  = (ta.lowestbars(vol,  lenBox + 1) + lenBox) / lenBox
+
+// Durata della fase tra i due cross
+int   duration = math.max(nz(ta.barssince(ta.crossover(lower, upper))), 1)
+float h        = ta.highest(high, duration)
+float l        = ta.lowest(low,  duration)
+
+// Stato canale minimale
+var bool  bc_active = false
+var float bc_top    = na
+var float bc_bot    = na
+
+// Apertura nuovo canale quando upper incrocia sopra lower e durata sufficiente
+if ta.crossover(upper, lower)
+    if duration > minDur
+        bc_active := true
+        bc_top    := h
+        bc_bot    := l
+    else
+        bc_active := bc_active
+else
+    bc_active := bc_active
+
+// Chiusura canale su breakout (strong: usa il corpo medio)
+float refPrice = close
+if strong
+    refPrice := math.avg(close, open)
+else
+    refPrice := close
+
+if bc_active
+    if refPrice > bc_top
+        bc_active := false
+    else
+        if refPrice < bc_bot
+            bc_active := false
+        else
+            bc_active := bc_active
+else
+    bc_active := bc_active
+
+// Solo sfondo giallino quando il canale è attivo
+color bgC = na
+if bc_active
+    bgC := color.new(color.yellow, transp)
+else
+    bgC := na
+bgcolor(bgC)
+
+
+
+
+// Inputs essenziali
+length   = input.int(9,  "BBWP Length",        minval=5)
+lookback = input.int(120, "Percentile Lookback",minval=50)
+lowTh    = input.float(5.0,  "Low Threshold (%)")
+trigger  = input.float(15.0, "Trigger Threshold (%)")
+
+// Funzione BBWP percentile (semplificata)
+f_bbwp(src, _len, _lb)=>
+    [basis, upper, lower] = ta.bb(src, _len, 2.0)
+    float denom = basis
+    if denom == 0.0
+        denom := 1e-10
+    else
+        denom := denom
+    float w = ((upper - lower) / denom) * 100.0
+    int maxLag = math.min(_lb - 1, bar_index)
+    float count = 0.0
+    float valid = 0.0
+    for i = 0 to maxLag
+        if not na(w[i])
+            valid += 1.0
+            if w >= w[i]
+                count += 1.0
+            else
+                count += 0.0
+        else
+            valid := valid
+    float perc = na
+    if valid > 0.0
+        perc := (count / valid) * 100.0
+    else
+        perc := na
+    perc
+
+// Calcolo BBWP percentile
+bbwp = f_bbwp(close, length, lookback)
+
+// Condizione PRE-BREAKOUT (solo per BG)
+bool isPreBreak = false
+if ta.crossover(bbwp, lowTh)
+    isPreBreak := true
+else
+    if not na(bbwp)
+        if bbwp > lowTh and bbwp < trigger
+            if ta.rising(bbwp, 2)
+                isPreBreak := true
+            else
+                isPreBreak := false
+        else
+            isPreBreak := false
+    else
+        isPreBreak := false
+
+// BG giallino
+color bgc = na
+if isPreBreak
+    bgc := color.new(color.green, 0)
+else
+    bgc := na
+bgcolor(bgc)
