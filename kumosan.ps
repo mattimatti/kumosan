@@ -312,11 +312,11 @@ alertcondition(enablePSAlerts and ps_exit,title="PRE-SETUP EXPIRED",message="Pre
 
 
 // === Background
-bgcolor(showBackgrounds and (pre_setup or ps_active)?color.new(color.fuchsia,86):na)
+//bgcolor(showBackgrounds and (pre_setup or ps_active)?color.new(color.fuchsia,86):na)
 
 
 // === Background
-bgcolor(showBackgrounds and (okAsset and breakout_long)?color.new(color.red,86):na)
+//bgcolor(showBackgrounds and (okAsset and breakout_long)?color.new(color.red,86):na)
 
 
 // === Alerts (gated su okAsset)
@@ -446,13 +446,6 @@ if bc_active
 else
     bc_active := bc_active
 
-// Solo sfondo giallino quando il canale è attivo
-color bgC = na
-if bc_active
-    bgC := color.new(color.yellow, transp)
-else
-    bgC := na
-bgcolor(bgC)
 
 
 
@@ -510,10 +503,48 @@ else
     else
         isPreBreak := false
 
-// BG giallino
-color bgc = na
-if isPreBreak
-    bgc := color.new(color.green, 0)
+
+
+
+// === BG unificato: Canale→BBWP→PRE (priorità: breakout > channel-stack)
+showUnifiedBG = input.bool(true,"BG unificato: Canale→BBWP→PRE")
+bcTranspBase  = input.int(88,"BG Canale: base (0-100)",minval=0,maxval=100)
+bcBoostBBWP   = input.int(30,"Boost con BBWP",minval=0,maxval=100)
+bcBoostPRE    = input.int(28,"Boost con PRESETUP",minval=0,maxval=100)
+
+color bgFinal = na
+if showUnifiedBG and showBackgrounds
+    if okAsset and breakout_long
+        bgFinal := color.new(color.red,86)  // breakout ha priorità
+    else
+        bool chan = false
+        if bc_active
+            chan := true
+        else
+            chan := false
+
+        if chan
+            int t = bcTranspBase
+            if isPreBreak
+                t := t - bcBoostBBWP
+            else
+                t := t
+            if pre_setup or ps_active
+                t := t - bcBoostPRE
+            else
+                t := t
+            if t < 0
+                t := 0
+            else
+                if t > 100
+                    t := 100
+                else
+                    t := t
+            // Canale = GIALLO, intensificato da BBWP e PRE
+            bgFinal := color.new(color.yellow, t)
+        else
+            bgFinal := na
 else
-    bgc := na
-bgcolor(bgc)
+    bgFinal := na
+
+bgcolor(bgFinal)
