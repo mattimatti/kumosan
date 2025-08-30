@@ -71,11 +71,7 @@ showShortOK=false
 if showShort and okAsset
     showShortOK:=true
 
-
-
-
 showLongLines=input.bool(false,"Mostra linee LONG (Entry/SL/TP1)")
-
 
 // --- Kumo thickness params
 th_pct=input.float(1.0,"Soglia Kumo Thin (% prezzo)",step=0.1)
@@ -154,9 +150,6 @@ in_kumo=close<=upperKumo and close>=lowerKumo
 pre_setup=is_thin and is_flat_any and in_kumo and trendOK
 cross_up_kumo=ta.crossover(close,upperKumo)
 
-
-
-
 // === Livelli dinamici breakout
 winLen=input.int(48,"Finestra swing per livelli",minval=5)
 volMult=input.float(1.2,"Min Volume × SMA20 per trigger",step=0.1)
@@ -176,13 +169,12 @@ else
     breakout_long:=false
     breakdown_short_aggr:=false
 
-
-// === Stato ARMED (tutte le precondizioni ok, manca solo il break)
+// === Stato ARMED
 armed_ready=false
 if pre_setup
-    condTK = (not requireTK) or tk_ok
-    condChi = (not requireChikou) or chi_ok
-    condRV = (not useRVOL) or rvol_ok
+    condTK=(not requireTK) or tk_ok
+    condChi=(not requireChikou) or chi_ok
+    condRV=(not useRVOL) or rvol_ok
     if trendOK and atr_ok and condTK and condChi and condRV
         if not breakout_long
             armed_ready:=true
@@ -209,11 +201,7 @@ tpShort=supLevel-atr*tpShortATR
 rrLong=(tpLong-resLevel)/(resLevel-slLong)
 rrShort=(supLevel-tpShort)/(slShort-supLevel)
 
-
-
-
-
-// === Plot livelli, SL, TP1 (con opzione post-segnale)
+// === Plot livelli (Long visibili, altri nascosti se vuoi pulizia)
 plot(resLevel,"Entry Long",color=color.new(color.lime,0),linewidth=2,style=plot.style_linebr)
 plot(showShortOK?supLevel:na,"Entry Short",color=color.new(color.red,0),linewidth=2,style=plot.style_linebr)
 plot(showAfterSignal?(breakout_long?slLong:na):slLong,"SL Long",color=color.new(color.white,100),linewidth=2,style=plot.style_linebr)
@@ -225,18 +213,12 @@ plot(showShortOK?(showAfterSignal?(breakdown_short_aggr?tpShort:na):tpShort):na,
 plotshape(okAsset and breakout_long,title="BREAKOUT LONG",style=shape.triangleup,location=location.belowbar,size=size.large,color=color.new(color.lime,0),text="LONG")
 plotshape(showShortOK and breakdown_short_aggr and okAsset,title="BREAKDOWN SHORT",style=shape.triangledown,location=location.abovebar,size=size.large,color=color.new(color.red,0),text="SHORT")
 
-
-
 // === PRE-SETUP sticky: durata e invalidazioni
 psHoldBars=input.int(5,"PRESETUP: hold (bar)",minval=1,maxval=50)
-
-// invalidazioni "forti" configurabili
 invOppKumo=input.bool(false,"Invalidante: close < lowerKumo")
 invTrendKO=input.bool(false,"Invalidante: Trend EMA KO")
 invATRhard=input.bool(false,"Invalidante: ATR% fuori (±5%)")
 invThinFlatLost=input.bool(false,"Invalidante: persi sia THIN che FLAT")
-
-
 
 invalid_hard=false
 if invOppKumo and close<lowerKumo
@@ -253,19 +235,16 @@ else if invThinFlatLost
 else
     invalid_hard:=invalid_hard
 
-// stato sticky con scadenza
 var bool ps_active=false
 var int ps_expire=na
 var int ps_start=na
 
-// ingresso sticky: appena si verifica pre_setup (solo se asset ok)
 if not ps_active
     if okAsset and pre_setup
         ps_active:=true
         ps_expire:=bar_index+psHoldBars
         ps_start:=bar_index
 else
-    // gestione uscita: invalidazione forte oppure timeout
     if invalid_hard
         ps_active:=false
         ps_expire:=na
@@ -276,22 +255,18 @@ else
             ps_expire:=na
             ps_start:=na
 
-
-// TTL (bar rimanenti) per tabella — versione robusta con if/else
-var int ps_ttl = na
+// TTL robusto (niente riassegnazione duplicata)
+var int ps_ttl=na
 if ps_active
-    _ttl = ps_expire - bar_index
-    if _ttl < 0
-        ps_ttl := 0
+    _ttl=ps_expire-bar_index
+    if _ttl<0
+        ps_ttl:=0
     else
-        ps_ttl := _ttl
+        ps_ttl:=_ttl
 else
-    ps_ttl := na
+    ps_ttl:=na
 
-if ps_active
-    ps_ttl:=ps_expire-bar_index
-
-// Alert opzionali (entrata/uscita sticky)
+// Alert opzionali sticky
 enablePSAlerts=input.bool(true,"Alert: PRE-SETUP sticky (enter/exit)")
 var bool ps_prev=false
 ps_enter=false
@@ -308,16 +283,334 @@ ps_prev:=ps_active
 alertcondition(enablePSAlerts and ps_enter,title="PRE-SETUP ACTIVE",message="Presetup sticky attivo. {{ticker}} @ {{interval}}")
 alertcondition(enablePSAlerts and ps_exit,title="PRE-SETUP EXPIRED",message="Presetup sticky terminato (invalidazione/timeout). {{ticker}} @ {{interval}}")
 
+// ====== Breakout Channels (minimal, per BG canale) ======
+bool strong  = input.bool(true,  "Strong closes (>50% body fuori)")
+int  normLen = input.int(100,    "Normalization length", minval=1)
+int  lenBox  = input.int(14,     "Box detection len",    minval=1)
+int  minDur  = input.int(10,     "Min durata canale",    minval=1)
 
+float lowestLow   = ta.lowest(low,  normLen)
+float highestHigh = ta.highest(high, normLen)
+float priceRange  = highestHigh - lowestLow
+float norm        = 0.0
+if priceRange != 0.0
+    norm := (close - lowestLow) / priceRange
+else
+    norm := 0.0
 
+float vol    = ta.stdev(norm, 14)
+float upper  = (ta.highestbars(vol, lenBox + 1) + lenBox) / lenBox
+float lower  = (ta.lowestbars(vol,  lenBox + 1) + lenBox) / lenBox
 
-// === Background
-//bgcolor(showBackgrounds and (pre_setup or ps_active)?color.new(color.fuchsia,86):na)
+int   duration = math.max(nz(ta.barssince(ta.crossover(lower, upper))), 1)
+float h        = ta.highest(high, duration)
+float l        = ta.lowest(low,  duration)
 
+var bool  bc_active=false
+var float bc_top=na
+var float bc_bot=na
 
-// === Background
-//bgcolor(showBackgrounds and (okAsset and breakout_long)?color.new(color.red,86):na)
+if ta.crossover(upper, lower)
+    if duration>minDur
+        bc_active:=true
+        bc_top:=h
+        bc_bot:=l
+    else
+        bc_active:=bc_active
+else
+    bc_active:=bc_active
 
+float refPrice=close
+if strong
+    refPrice:=math.avg(close,open)
+else
+    refPrice:=close
+
+if bc_active
+    if refPrice>bc_top
+        bc_active:=false
+    else
+        if refPrice<bc_bot
+            bc_active:=false
+        else
+            bc_active:=bc_active
+else
+    bc_active:=bc_active
+
+// ====== BBWP minimal (solo per intensità PRE) ======
+length   = input.int(9,"BBWP Length",minval=5)
+lookback = input.int(120,"Percentile Lookback",minval=50)
+lowTh    = input.float(5.0,"Low Threshold (%)")
+trigger  = input.float(15.0,"Trigger Threshold (%)")
+
+f_bbwp(src,_len,_lb)=>
+    [basis,up_,lo_]=ta.bb(src,_len,2.0)
+    float denom=basis
+    if denom==0.0
+        denom:=1e-10
+    else
+        denom:=denom
+    float w=((up_-lo_)/denom)*100.0
+    int maxLag=math.min(_lb-1,bar_index)
+    float count=0.0
+    float valid=0.0
+    for i=0 to maxLag
+        if not na(w[i])
+            valid+=1.0
+            if w>=w[i]
+                count+=1.0
+            else
+                count+=0.0
+        else
+            valid:=valid
+    float perc=na
+    if valid>0.0
+        perc:=(count/valid)*100.0
+    else
+        perc:=na
+    perc
+
+bbwp=f_bbwp(close,length,lookback)
+
+bool isPreBreak=false
+if ta.crossover(bbwp,lowTh)
+    isPreBreak:=true
+else
+    if not na(bbwp)
+        if bbwp>lowTh and bbwp<trigger
+            if ta.rising(bbwp,2)
+                isPreBreak:=true
+            else
+                isPreBreak:=false
+        else
+            isPreBreak:=false
+    else
+        isPreBreak:=false
+
+// === Directional Bias (Long vs Short)
+biasLookback=input.int(12,"Bias: lookback momentum",minval=2)
+bool chikou_free_dn=false
+if close<low[26]
+    chikou_free_dn:=true
+else
+    chikou_free_dn:=false
+
+bool trendDown=false
+if close<emaFast and slope200<=0
+    trendDown:=true
+else
+    trendDown:=false
+
+float posLong=0.0, posShort=0.0
+if close>upperKumo
+    posLong:=1.0
+    posShort:=0.0
+else
+    if close<lowerKumo
+        posLong:=0.0
+        posShort:=1.0
+    else
+        posLong:=0.5
+        posShort:=0.5
+
+float skew=na
+if bc_active
+    float den=bc_top-bc_bot
+    if not na(den) and den!=0.0
+        float rp=strong?math.avg(close,open):close
+        skew:=(rp-bc_bot)/den
+        if skew<0
+            skew:=0
+        else
+            if skew>1
+                skew:=1
+            else
+                skew:=skew
+    else
+        skew:=na
+else
+    skew:=na
+
+float dUp=na
+float dDn=na
+
+if not na(resLevel) and not na(supLevel)
+    dUp:=math.max(resLevel-close,0)
+    dDn:=math.max(close-supLevel,0)
+else
+    dUp:=na
+    dDn:=na
+
+bool nearUp=false, nearDn=false
+if not na(dUp) and not na(dDn)
+    if dUp<dDn
+        nearUp:=true
+        nearDn:=false
+    else
+        nearUp:=false
+        nearDn:=true
+else
+    nearUp:=false
+    nearDn:=false
+
+float mom=close-close[biasLookback]
+bool upBody=close>open
+bool dnBody=close<open
+bool cloudUp=spanA>spanB
+bool cloudDn=spanA<spanB
+
+int W_trend=3, W_kumo=2, W_tk=2, W_chi=2, W_cloud=2, W_skew=3, W_near=2, W_mom=2, W_body=1
+
+float longScore=0
+if trendOK
+    longScore+=W_trend
+else
+    longScore+=0
+if posLong>0.5
+    longScore+=W_kumo
+else
+    if posLong==0.5
+        longScore+=W_kumo*0.5
+    else
+        longScore+=0
+if tk_ok
+    longScore+=W_tk
+else
+    longScore+=0
+if chi_ok
+    longScore+=W_chi
+else
+    longScore+=0
+if cloudUp
+    longScore+=W_cloud
+else
+    longScore+=0
+if not na(skew) and skew>0.6
+    longScore+=W_skew
+else
+    longScore+=0
+if nearUp
+    longScore+=W_near
+else
+    longScore+=0
+if mom>0
+    longScore+=W_mom
+else
+    longScore+=0
+if upBody
+    longScore+=W_body
+else
+    longScore+=0
+
+float shortScore=0
+if showShortOK
+    if trendDown
+        shortScore+=W_trend
+    else
+        shortScore+=0
+    if posShort>0.5
+        shortScore+=W_kumo
+    else
+        if posShort==0.5
+            shortScore+=W_kumo*0.5
+        else
+            shortScore+=0
+    if not requireTK and not tk_ok
+        shortScore+=W_tk
+    else
+        if tenkan<kijun
+            shortScore+=W_tk
+        else
+            shortScore+=0
+    if chikou_free_dn
+        shortScore+=W_chi
+    else
+        shortScore+=0
+    if cloudDn
+        shortScore+=W_cloud
+    else
+        shortScore+=0
+    if not na(skew) and skew<0.4
+        shortScore+=W_skew
+    else
+        shortScore+=0
+    if nearDn
+        shortScore+=W_near
+    else
+        shortScore+=0
+    if mom<0
+        shortScore+=W_mom
+    else
+        shortScore+=0
+    if dnBody
+        shortScore+=W_body
+    else
+        shortScore+=0
+else
+    shortScore+=0
+
+float denomBias=longScore+shortScore
+float biasLong=na, 
+float biasShort=na
+if denomBias>0
+    biasLong:=(longScore/denomBias)*100.0
+    biasShort:=(shortScore/denomBias)*100.0
+else
+    biasLong:=na
+    biasShort:=na
+
+// === BG unificato: Canale→BBWP→PRE (+ opzionale boost da Bias)
+showUnifiedBG=input.bool(true,"BG unificato: Canale→BBWP→PRE")
+bcTranspBase=input.int(88,"BG Canale: base (0-100)",minval=0,maxval=100)
+bcBoostBBWP=input.int(30,"Boost con BBWP",minval=0,maxval=100)
+bcBoostPRE=input.int(28,"Boost con PRESETUP",minval=0,maxval=100)
+bcBoostBias=input.int(16,"Boost con BIAS (opz.)",minval=0,maxval=100)
+
+color bgFinal=na
+if showUnifiedBG and showBackgrounds
+    if okAsset and breakout_long
+        bgFinal:=color.new(color.red,86)
+    else
+        bool chan=false
+        if bc_active
+            chan:=true
+        else
+            chan:=false
+        if chan
+            int t=bcTranspBase
+            if isPreBreak
+                t:=t-bcBoostBBWP
+            else
+                t:=t
+            if pre_setup or ps_active
+                t:=t-bcBoostPRE
+            else
+                t:=t
+            // Boost addizionale in base alla forza direzionale (max tra Long/Short)
+            if not na(biasLong) and not na(biasShort)
+                float biasMax=math.max(biasLong,biasShort)
+                float strength=(biasMax-50.0)/50.0
+                if strength<0
+                    strength:=0
+                else
+                    strength:=strength
+                int add=int(math.round(bcBoostBias*strength))
+                t:=t-add
+            else
+                t:=t
+            if t<0
+                t:=0
+            else
+                if t>100
+                    t:=100
+                else
+                    t:=t
+            bgFinal:=color.new(color.yellow,t)
+        else
+            bgFinal:=na
+else
+    bgFinal:=na
+bgcolor(bgFinal)
 
 // === Alerts (gated su okAsset)
 alertcondition(okAsset and breakout_long,title="BREAKOUT LONG",message="Breakout long confermato.")
@@ -327,7 +620,7 @@ tp1_short_hit=low<=tpShort
 alertcondition(okAsset and tp1_long_hit,title="TP1 LONG HIT",message="TP1 Long raggiunto.")
 alertcondition(showShortOK and okAsset and tp1_short_hit,title="TP1 SHORT HIT",message="TP1 Short raggiunto.")
 
-// === Tabella debug con semaforo (sx e dx)
+// === Tabella debug con semaforo
 showTable=input.bool(true,"Mostra tabella")
 tblPos=input.string("top_left","Posizione tabella",options=["top_right","top_left","bottom_right","bottom_left"])
 f_pos(p)=>p=="top_right"?position.top_right:p=="top_left"?position.top_left:p=="bottom_right"?position.bottom_right:position.bottom_left
@@ -337,7 +630,7 @@ f_colbg(ok,warn)=>ok?color.new(color.lime,0):warn?color.new(color.yellow,0):colo
 var table t=na
 var string _p=na
 var int _rows=0
-rowsCount=showShort?18:14
+rowsCount=showShort?20:16
 if barstate.isfirst or na(t) or tblPos!=_p or rowsCount!=_rows
     if not na(t)
         table.delete(t)
@@ -383,168 +676,38 @@ if showTable and barstate.islast and not na(t)
         table.cell(t,1,16,str.tostring(tpShort,"#.#####"),text_color=color.red,bgcolor=f_colbg(close>tpShort,false))
         table.cell(t,0,17,"R:R SHORT",text_color=color.white,bgcolor=f_light(rrShort>1.5,rrShort>1.0))
         table.cell(t,1,17,str.tostring(rrShort,"#.##"),text_color=color.red,bgcolor=f_colbg(rrShort>1.5,rrShort>1.0))
-
-
-// Inputs essenziali
-bool strong  = input.bool(true,  "Strong closes (>50% body fuori)")
-int  normLen = input.int(100,    "Normalization length", minval=1)
-int  lenBox  = input.int(14,     "Box detection len",    minval=1)
-int  minDur  = input.int(10,     "Min durata canale",    minval=1)
-int  transp  = input.int(82,     "Trasparenza BG (0-100)", minval=0, maxval=100)
-
-// Normalizzazione prezzo
-float lowestLow   = ta.lowest(low,  normLen)
-float highestHigh = ta.highest(high, normLen)
-float priceRange  = highestHigh - lowestLow
-float norm        = 0.0
-if priceRange != 0.0
-    norm := (close - lowestLow) / priceRange
-else
-    norm := 0.0
-
-// Volatilità normalizzata + oscillatori di canale
-float vol    = ta.stdev(norm, 14)
-float upper  = (ta.highestbars(vol, lenBox + 1) + lenBox) / lenBox
-float lower  = (ta.lowestbars(vol,  lenBox + 1) + lenBox) / lenBox
-
-// Durata della fase tra i due cross
-int   duration = math.max(nz(ta.barssince(ta.crossover(lower, upper))), 1)
-float h        = ta.highest(high, duration)
-float l        = ta.lowest(low,  duration)
-
-// Stato canale minimale
-var bool  bc_active = false
-var float bc_top    = na
-var float bc_bot    = na
-
-// Apertura nuovo canale quando upper incrocia sopra lower e durata sufficiente
-if ta.crossover(upper, lower)
-    if duration > minDur
-        bc_active := true
-        bc_top    := h
-        bc_bot    := l
+    // Bias rows
+    int idxBL=na
+    int idxBS=na
+    if showShort
+        idxBL:=18
+        idxBS:=19
     else
-        bc_active := bc_active
-else
-    bc_active := bc_active
-
-// Chiusura canale su breakout (strong: usa il corpo medio)
-float refPrice = close
-if strong
-    refPrice := math.avg(close, open)
-else
-    refPrice := close
-
-if bc_active
-    if refPrice > bc_top
-        bc_active := false
-    else
-        if refPrice < bc_bot
-            bc_active := false
+        idxBL:=14
+        idxBS:=15
+    color bgLong=na
+    if not na(biasLong)
+        if biasLong>=60
+            bgLong:=color.new(color.lime,0)
         else
-            bc_active := bc_active
-else
-    bc_active := bc_active
-
-
-
-
-
-// Inputs essenziali
-length   = input.int(9,  "BBWP Length",        minval=5)
-lookback = input.int(120, "Percentile Lookback",minval=50)
-lowTh    = input.float(5.0,  "Low Threshold (%)")
-trigger  = input.float(15.0, "Trigger Threshold (%)")
-
-// Funzione BBWP percentile (semplificata)
-f_bbwp(src, _len, _lb)=>
-    [basis, upper, lower] = ta.bb(src, _len, 2.0)
-    float denom = basis
-    if denom == 0.0
-        denom := 1e-10
+            if biasLong>=40
+                bgLong:=color.new(color.yellow,0)
+            else
+                bgLong:=color.new(color.red,0)
     else
-        denom := denom
-    float w = ((upper - lower) / denom) * 100.0
-    int maxLag = math.min(_lb - 1, bar_index)
-    float count = 0.0
-    float valid = 0.0
-    for i = 0 to maxLag
-        if not na(w[i])
-            valid += 1.0
-            if w >= w[i]
-                count += 1.0
-            else
-                count += 0.0
+        bgLong:=color.new(color.gray,90)
+    color bgShort=na
+    if not na(biasShort)
+        if biasShort>=60
+            bgShort:=color.new(color.lime,0)
         else
-            valid := valid
-    float perc = na
-    if valid > 0.0
-        perc := (count / valid) * 100.0
+            if biasShort>=40
+                bgShort:=color.new(color.yellow,0)
+            else
+                bgShort:=color.new(color.red,0)
     else
-        perc := na
-    perc
-
-// Calcolo BBWP percentile
-bbwp = f_bbwp(close, length, lookback)
-
-// Condizione PRE-BREAKOUT (solo per BG)
-bool isPreBreak = false
-if ta.crossover(bbwp, lowTh)
-    isPreBreak := true
-else
-    if not na(bbwp)
-        if bbwp > lowTh and bbwp < trigger
-            if ta.rising(bbwp, 2)
-                isPreBreak := true
-            else
-                isPreBreak := false
-        else
-            isPreBreak := false
-    else
-        isPreBreak := false
-
-
-
-
-// === BG unificato: Canale→BBWP→PRE (priorità: breakout > channel-stack)
-showUnifiedBG = input.bool(true,"BG unificato: Canale→BBWP→PRE")
-bcTranspBase  = input.int(88,"BG Canale: base (0-100)",minval=0,maxval=100)
-bcBoostBBWP   = input.int(30,"Boost con BBWP",minval=0,maxval=100)
-bcBoostPRE    = input.int(28,"Boost con PRESETUP",minval=0,maxval=100)
-
-color bgFinal = na
-if showUnifiedBG and showBackgrounds
-    if okAsset and breakout_long
-        bgFinal := color.new(color.red,86)  // breakout ha priorità
-    else
-        bool chan = false
-        if bc_active
-            chan := true
-        else
-            chan := false
-
-        if chan
-            int t = bcTranspBase
-            if isPreBreak
-                t := t - bcBoostBBWP
-            else
-                t := t
-            if pre_setup or ps_active
-                t := t - bcBoostPRE
-            else
-                t := t
-            if t < 0
-                t := 0
-            else
-                if t > 100
-                    t := 100
-                else
-                    t := t
-            // Canale = GIALLO, intensificato da BBWP e PRE
-            bgFinal := color.new(color.yellow, t)
-        else
-            bgFinal := na
-else
-    bgFinal := na
-
-bgcolor(bgFinal)
+        bgShort:=color.new(color.gray,90)
+    table.cell(t,0,idxBL,"BIAS LONG",text_color=color.white,bgcolor=bgLong)
+    table.cell(t,1,idxBL,not na(biasLong)?str.tostring(biasLong,"#.0")+"%":"n/a",text_color=color.white,bgcolor=bgLong)
+    table.cell(t,0,idxBS,"BIAS SHORT",text_color=color.white,bgcolor=bgShort)
+    table.cell(t,1,idxBS,not na(biasShort)?str.tostring(biasShort,"#.0")+"%":"n/a",text_color=color.white,bgcolor=bgShort)
