@@ -100,10 +100,10 @@ atr1m_pct = (atr1m_v / close1m_v) * 10000
 hline(0, color=color.new(color.gray,80))
 
 // ==== Alert conditions base ====
-alertcondition(trendUp,          title="EMA Trend Up",   message="EMA50 > EMA200 su {{ticker}} ({{interval}})")
-alertcondition(chikouFreeUp,     title="Chikou Free Up", message="Chikou libera sopra il prezzo su {{ticker}} ({{interval}})")
-alertcondition(chikouFreeDown,   title="Chikou Free Down", message="Chikou libera sotto il prezzo su {{ticker}} ({{interval}})")
-alertcondition(isPreBreak,       title="BBWP Pre-Breakout", message="BBWP Pre-Breakout — {{ticker}} — {{interval}}")
+//alertcondition(trendUp,          title="EMA Trend Up",   message="EMA50 > EMA200 su {{ticker}} ({{interval}})")
+//alertcondition(chikouFreeUp,     title="Chikou Free Up", message="Chikou libera sopra il prezzo su {{ticker}} ({{interval}})")
+//alertcondition(chikouFreeDown,   title="Chikou Free Down", message="Chikou libera sotto il prezzo su {{ticker}} ({{interval}})")
+//alertcondition(isPreBreak,       title="BBWP Pre-Breakout", message="BBWP Pre-Breakout — {{ticker}} — {{interval}}")
 alertcondition(isBreakout,       title="BBWP Breakout",     message="BBWP Breakout — {{ticker}} — {{interval}}")
 alertcondition(isCompression,    title="Compression",       message="BBWP in compressione — {{ticker}} — {{interval}}")
 
@@ -142,3 +142,18 @@ alertcondition(preBreakAtrOk,
 alertcondition(breakAtrOk,
      title   = "BBWP Breakout + ATR OK",
      message = "BBWP Breakout con ATR% sotto soglia su {{ticker}} ({{interval}})")
+
+
+// ==== Alert conditions COMBINATI (Recent + TrendUp + ATR OK) ====
+
+// Pre-Breakout combinato
+preBreakCombo = preBreakRecent and trendUp and (atrPct <= atrMaxTh)
+alertcondition(preBreakCombo,
+     title   = "BBWP Pre-Breakout Combo",
+     message = "BBWP Pre-Breakout RECENTE + TrendUp + ATR OK su {{ticker}} ({{interval}})")
+
+// Breakout combinato
+breakCombo = breakoutRecent and trendUp and (atrPct <= atrMaxTh)
+alertcondition(breakCombo,
+     title   = "BBWP Breakout Combo",
+     message = "BBWP Breakout RECENTE + TrendUp + ATR OK su {{ticker}} ({{interval}})")
