@@ -1,0 +1,144 @@
+//@version=5
+indicator("BBWP Screener", overlay=false, format=format.percent, precision=2, max_bars_back=1000)
+
+// ==== Parametri ====
+length        = input.int(25,  "BBWP Length (25=5m, 50=15m)", minval=5)
+lookback      = input.int(100, "Percentile Lookback", minval=50)
+lowTh         = input.float(5.0,  "Low Threshold (%)")       // compressione
+trigger       = input.float(20.0, "Trigger Threshold (%)")   // breakout
+recentBars    = input.int(6, "Quante barre recenti contano", minval=1)
+emaLen        = input.int(50,  "EMA Length", minval=5)
+atrLen        = input.int(14,  "ATR Length", minval=1)
+emaShortLen   = input.int(50, "EMA Short Length", minval=1)
+emaLongLen    = input.int(200, "EMA Long Length", minval=1)
+tfFilter      = input.timeframe("30", "Timeframe per Trend") // es. 30m o 1h
+chikouLen     = input.int(26, "Chikou Lag", minval=1)
+atrMaxTh      = input.float(2.0, "ATR% massimo per breakout", step=0.1)
+
+// ==== Funzione BBWP percentile (fix ordine ta.bb) ====
+f_bbwp(src, _len, _lb) =>
+    [basis, upper, lower] = ta.bb(src, _len, 2.0)
+    rng   = upper - lower
+    denom = math.max(basis, 1e-10)
+    w     = (rng / denom) * 100.0
+    maxLag = math.min(_lb - 1, bar_index)
+    float count = 0.0
+    float valid = 0.0
+    for i = 0 to maxLag
+        if not na(w[i])
+            valid += 1.0
+            count += (w >= w[i] ? 1.0 : 0.0)
+    valid > 0 ? (count / valid) * 100.0 : na
+
+// ==== Calcolo BBWP ====
+bbwp = f_bbwp(close, length, lookback)
+
+// ==== Condizioni operative ====
+isCompression = not na(bbwp) and bbwp <= lowTh
+isPreBreak    = ta.crossover(bbwp, lowTh) or (bbwp > lowTh and bbwp < trigger and ta.rising(bbwp, 2))
+isBreakout    = ta.crossover(bbwp, trigger)
+
+// ==== EMA & Trend ====
+ema50   = ta.ema(close, emaLen)
+ema200  = ta.ema(close, 200)
+ema9    = ta.ema(close, 9)
+ema18   = ta.ema(close, 18)
+emaSlope = ema50 - ema50[3]
+emaApproachingUp = emaSlope > 0
+
+// ATR ====
+atr = ta.atr(atrLen)
+atrPct = (atr / close) * 100
+
+// ==== EMA su TF superiore ====
+ema50_htf  = request.security(syminfo.tickerid, tfFilter, ta.ema(close, emaShortLen))
+ema200_htf = request.security(syminfo.tickerid, tfFilter, ta.ema(close, emaLongLen))
+trendUp    = ema50_htf > ema200_htf
+trendDown  = ema50_htf < ema200_htf
+
+// ==== Spread EMA9-EMA18 ====
+emaDistance = ((ema9 - ema18) / math.max(ema18, 1e-10)) * 100
+plot(emaDistance, title="EMA9-18 spread (%)", color=color.purple, display=display.none)
+
+// --- Separiamo spread positivo/negativo
+spreadPos = emaDistance > 0 ? emaDistance : na
+spreadNeg = emaDistance < 0 ? emaDistance : na
+
+// --- Plot facoltativi
+pPos = plot(spreadPos, title="Spread% +", color=color.new(color.lime, 0),  linewidth=1)
+pNeg = plot(spreadNeg, title="Spread% -", color=color.new(color.red,  0),  linewidth=1)
+zeroLine = plot(0, title="Zero", color=color.new(color.gray, 100), display=display.none)
+
+// ==== ATR Color Map ====
+minAtr = ta.lowest(atrPct, lookback)
+maxAtr = ta.highest(atrPct, lookback)
+norm   = (atrPct - minAtr) / math.max(maxAtr - minAtr, 1e-10)
+atrColor = color.from_gradient(norm, 0, 1, color.blue, color.red)
+
+fill(pPos, zeroLine, color=color.new(atrColor, 0), title="Area positiva")
+fill(pNeg, zeroLine, color=color.new(atrColor, 0), title="Area negativa")
+plot(atrPct, title="ATR %", color=color.purple, display=display.none)
+
+// ==== Evidenziazione Pre-Breakout ====
+preStripeColor = input.color(color.new(color.fuchsia, 75), "Colore barra Pre-Breakout")
+bgcolor(isPreBreak ? preStripeColor : na, title="Pre-Breakout Stripe")
+
+// ==== Chikou ====
+chikou = close[chikouLen]
+pastHigh = high[chikouLen]
+pastLow  = low[chikouLen]
+chikouFreeUp   = chikou > pastHigh
+chikouFreeDown = chikou < pastLow
+
+// ==== Output per Screener ====
+plot(bbwp, title="BBWP", display=display.none)   // valore numerico
+plot(atr,  title="ATR", color=color.blue, display=display.none)
+
+// ==== ATR a 1m (non usato per alert, solo diagnostico) ====
+[atr1m_v, close1m_v] = request.security(syminfo.tickerid, "1", [ta.atr(atrLen), close], gaps=barmerge.gaps_on)
+atr1m_pct = (atr1m_v / close1m_v) * 10000
+hline(0, color=color.new(color.gray,80))
+
+// ==== Alert conditions base ====
+alertcondition(trendUp,          title="EMA Trend Up",   message="EMA50 > EMA200 su {{ticker}} ({{interval}})")
+alertcondition(chikouFreeUp,     title="Chikou Free Up", message="Chikou libera sopra il prezzo su {{ticker}} ({{interval}})")
+alertcondition(chikouFreeDown,   title="Chikou Free Down", message="Chikou libera sotto il prezzo su {{ticker}} ({{interval}})")
+alertcondition(isPreBreak,       title="BBWP Pre-Breakout", message="BBWP Pre-Breakout — {{ticker}} — {{interval}}")
+alertcondition(isBreakout,       title="BBWP Breakout",     message="BBWP Breakout — {{ticker}} — {{interval}}")
+alertcondition(isCompression,    title="Compression",       message="BBWP in compressione — {{ticker}} — {{interval}}")
+
+// ==== Alert conditions recenti (punto 2) ====
+preBreakRecent = ta.barssince(isPreBreak) <= (recentBars - 1)
+breakoutRecent = ta.barssince(isBreakout) <= (recentBars - 1)
+
+alertcondition(preBreakRecent,
+     title   = "BBWP Pre-Breakout Recent",
+     message = "BBWP Pre-Breakout recente (entro N barre) su {{ticker}} ({{interval}})")
+
+alertcondition(breakoutRecent,
+     title   = "BBWP Breakout Recent",
+     message = "BBWP Breakout recente (entro N barre) su {{ticker}} ({{interval}})")
+
+// ==== Alert conditions filtrati per TrendUp (punto 3) ====
+preBreakTrendUp = isPreBreak and trendUp
+breakTrendUp    = isBreakout and trendUp
+
+alertcondition(preBreakTrendUp,
+     title   = "BBWP Pre-Breakout + TrendUp",
+     message = "BBWP Pre-Breakout con trend rialzista su {{ticker}} ({{interval}})")
+
+alertcondition(breakTrendUp,
+     title   = "BBWP Breakout + TrendUp",
+     message = "BBWP Breakout con trend rialzista su {{ticker}} ({{interval}})")
+
+// ==== Alert conditions filtrati per ATR (punto 4) ====
+preBreakAtrOk = isPreBreak and (atrPct <= atrMaxTh)
+breakAtrOk    = isBreakout  and (atrPct <= atrMaxTh)
+
+alertcondition(preBreakAtrOk,
+     title   = "BBWP Pre-Breakout + ATR OK",
+     message = "BBWP Pre-Breakout con ATR% sotto soglia su {{ticker}} ({{interval}})")
+
+alertcondition(breakAtrOk,
+     title   = "BBWP Breakout + ATR OK",
+     message = "BBWP Breakout con ATR% sotto soglia su {{ticker}} ({{interval}})")
