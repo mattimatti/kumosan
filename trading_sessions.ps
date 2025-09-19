@@ -1,0 +1,33 @@
+// ======================================
+// ==== Trading Session Filter Plugin ===
+// ======================================
+
+// Giorni abilitati (lunedì=1 … domenica=7)
+allowMon = input.bool(true,  "Trade Monday",  group="Session Filter")
+allowTue = input.bool(true,  "Trade Tuesday", group="Session Filter")
+allowWed = input.bool(true,  "Trade Wednesday", group="Session Filter")
+allowThu = input.bool(true,  "Trade Thursday", group="Session Filter")
+allowFri = input.bool(true,  "Trade Friday",  group="Session Filter")
+allowSat = input.bool(false, "Trade Saturday", group="Session Filter")
+allowSun = input.bool(false, "Trade Sunday",   group="Session Filter")
+
+// Orari (24h, timezone del grafico)
+startHour = input.int(9,  "Start Hour",  minval=0, maxval=23, group="Session Filter")
+endHour   = input.int(17, "End Hour",    minval=0, maxval=23, group="Session Filter")
+
+// Controlli
+currentDay  = dayofweek(time)
+currentHour = hour(time)
+
+dayAllowed = (allowMon and currentDay==dayofweek.monday) or
+             (allowTue and currentDay==dayofweek.tuesday) or
+             (allowWed and currentDay==dayofweek.wednesday) or
+             (allowThu and currentDay==dayofweek.thursday) or
+             (allowFri and currentDay==dayofweek.friday) or
+             (allowSat and currentDay==dayofweek.saturday) or
+             (allowSun and currentDay==dayofweek.sunday)
+
+hourAllowed = (currentHour >= startHour) and (currentHour < endHour)
+
+// Flag finale
+tradeSessionOk = dayAllowed and hourAllowed
