@@ -210,7 +210,7 @@ plotshape(okAsset and breakout_long,title="BREAKOUT LONG",style=shape.triangleup
 plotshape(showShortOK and breakdown_short_aggr and okAsset,title="BREAKDOWN SHORT",style=shape.triangledown,location=location.abovebar,size=size.large,color=color.new(color.red,0),text="SHORT")
 
 // === PRE-SETUP sticky
-psHoldBars=input.int(5,"PRESETUP: hold (bar)",minval=1,maxval=50)
+psHoldBars=input.int(10,"PRESETUP: hold (bar)",minval=1,maxval=50)
 invOppKumo=input.bool(false,"Invalidante: close < lowerKumo")
 invTrendKO=input.bool(false,"Invalidante: Trend EMA KO")
 invATRhard=input.bool(false,"Invalidante: ATR% fuori (±5%)")
@@ -329,6 +329,8 @@ if bc_active
 else
     bc_active:=bc_active
 
+
+
 // ====== BBWP minimal (solo intensità PRE) ======
 length   = input.int(9,"BBWP Length",minval=5)
 lookback = input.int(120,"Percentile Lookback",minval=50)
@@ -378,6 +380,10 @@ else
             isPreBreak:=false
     else
         isPreBreak:=false
+
+
+
+
 
 // === Directional Bias (Long vs Short)
 biasLookback=input.int(12,"Bias: lookback momentum",minval=2)
@@ -490,6 +496,12 @@ if showShortOK
     if dnBody
         shortScore+=W_body
 
+
+bool isShort = shortScore > longScore
+bool isLong = longScore > shortScore
+
+
+
 float denomBias=longScore+shortScore
 float biasLong=na
 float biasShort=na
@@ -572,7 +584,15 @@ alertcondition(showShortOK and okAsset and tp1_short_hit,title="TP1 SHORT HIT",m
 
 
 
+
+
+alertcondition(enablePSAlerts and ps_enter and isLong,title="PRE LONG",message="Presetup sticky attivo. {{ticker}} @ {{interval}}")
+alertcondition(enablePSAlerts and ps_enter and isShort,title="PRE SHORT",message="Presetup sticky attivo. {{ticker}} @ {{interval}}")
+
+
 // === ATR FLOATING BLOCK (semplice) ===
+// mostriamo un blocco fluttuante dell'altezza dell'atr.
+
 atrBlkOn       = input.bool(true,  "ATR Block: attivo")
 atrBlkMul      = input.float(1.2,  "ATR Block × ATR", minval=0.1, step=0.1)
 atrBlkTransp   = input.int(65,     "ATR Block trasparenza", minval=0, maxval=100)
