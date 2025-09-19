@@ -570,7 +570,6 @@ tp1_short_hit=low<=tpShort
 alertcondition(okAsset and tp1_long_hit,title="TP1 LONG HIT",message="TP1 Long raggiunto.")
 alertcondition(showShortOK and okAsset and tp1_short_hit,title="TP1 SHORT HIT",message="TP1 Short raggiunto.")
 
-// === Tabella (ridotta qui per brevità — lasciata uguale al tuo ultimo)
 
 
 // === ATR FLOATING BLOCK (semplice) ===
