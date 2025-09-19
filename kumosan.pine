@@ -260,6 +260,9 @@ if ps_active
 else
     ps_ttl:=na
 
+
+// entriamo o no nel presetup?
+
 enablePSAlerts=input.bool(true,"Alert: PRE-SETUP sticky (enter/exit)")
 var bool ps_prev=false
 ps_enter=false
@@ -273,8 +276,9 @@ if not ps_active and ps_prev
 else
     ps_exit:=false
 ps_prev:=ps_active
-alertcondition(enablePSAlerts and ps_enter,title="PRE-SETUP ACTIVE",message="Presetup sticky attivo. {{ticker}} @ {{interval}}")
-alertcondition(enablePSAlerts and ps_exit,title="PRE-SETUP EXPIRED",message="Presetup sticky terminato (invalidazione/timeout). {{ticker}} @ {{interval}}")
+
+
+
 
 // ====== Breakout Channels (minimal, per BG canale) ======
 bool strong  = input.bool(true,"Strong closes (>50% body fuori)")
@@ -497,6 +501,8 @@ if showShortOK
         shortScore+=W_body
 
 
+// Determiniamo se è una short o è una long.
+
 bool isShort = shortScore > longScore
 bool isLong = longScore > shortScore
 
@@ -534,11 +540,13 @@ float wSum=math.max(wEMA+wChikou+wKumo+wChannel,1e-6)
 float bias=(wEMA*biasEMA+wChikou*biasChi+wKumo*biasKu+wChannel*biasChn)/wSum
 bias:=math.max(-1.0,math.min(1.0,bias))
 
+
+
 // ---- BG unificato
 showUnifiedBG = input.bool(true,"BG unificato: Canale→BBWP→PRE")
-bcTranspBase  = input.int(88,"BG Canale: base (0-100)",minval=0,maxval=100)
-bcBoostBBWP   = input.int(30,"Boost con BBWP",minval=0,maxval=100)
-bcBoostPRE    = input.int(28,"Boost con PRESETUP",minval=0,maxval=100)
+bcTranspBase  = input.int(95,"BG Canale: base (0-100)",minval=0,maxval=100)
+bcBoostBBWP   = input.int(20,"Boost con BBWP",minval=0,maxval=100)
+bcBoostPRE    = input.int(8,"Boost con PRESETUP",minval=0,maxval=100)
 
 color bgFinal = na
 if showUnifiedBG
@@ -584,10 +592,34 @@ alertcondition(showShortOK and okAsset and tp1_short_hit,title="TP1 SHORT HIT",m
 
 
 
+// Conferme volumi
+// === Inputs ===
+atrLookback = input.int(3, "ATR Crescita (barre)", minval=1)
+volLen      = input.int(20, "Periodo Media Volume", minval=1)
+rvolTh      = input.float(1.5, "Soglia RVOL (es. 1.5 = 150%)")
+
+// === ATR ===
+
+atrRising = atr > atr[atrLookback]
+
+// === Relative Volume ===
+volMA = ta.sma(volume, volLen)
+
+// === Condizioni ===
+indecision = atrRising and (rvol < rvolTh)
+trendReal  = atrRising and (rvol >= rvolTh)
+
+// === Plots ===
+plot(atr, "ATR", color=color.new(color.blue, 0), display = display.none)
+plot(rvol, "Relative Volume", color=color.new(color.orange, 0), display = display.none)
 
 
-alertcondition(enablePSAlerts and ps_enter and isLong,title="PRE LONG",message="Presetup sticky attivo. {{ticker}} @ {{interval}}")
-alertcondition(enablePSAlerts and ps_enter and isShort,title="PRE SHORT",message="Presetup sticky attivo. {{ticker}} @ {{interval}}")
+
+
+alertcondition(enablePSAlerts and ps_enter and isLong and trendReal,title="PRE-SETUP BULL",message="Presetup BULL  attivo. {{ticker}} @ {{interval}}")
+alertcondition(enablePSAlerts and ps_enter and isShort and trendReal,title="PRE-SETUP BEAR",message="Presetup BEAR attivo. {{ticker}} @ {{interval}}")
+
+alertcondition(enablePSAlerts and ps_exit,title="PRE-SETUP EXPIRED",message="Presetup sticky terminato (invalidazione/timeout). {{ticker}} @ {{interval}}")
 
 
 // === ATR FLOATING BLOCK (semplice) ===
@@ -625,3 +657,15 @@ else
         box.delete(atrBlock)
         atrBlock := na
 // === fine ATR FLOATING BLOCK ===
+
+
+
+
+
+
+
+
+
+
+
+
