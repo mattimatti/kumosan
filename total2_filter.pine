@@ -1,0 +1,11 @@
+// === Filtro basato su TOTAL2 (Altcoin Market Cap) ===
+total2Close = request.security("CRYPTOCAP:TOTAL2", timeframe.period, close)
+total2MA    = ta.sma(total2Close, 50)  // puoi cambiare 50 con un altro periodo
+
+// Condizione di filtro: opero solo se TOTAL2 > MA50
+bool total2FilterApproval = total2Close > total2MA
+
+// Visual feedback
+plot(total2Close, "TOTAL2 Close", color=color.new(color.blue, 60))
+plot(total2MA,    "TOTAL2 MA50",  color=color.new(color.orange, 0))
+bgcolor(total2FilterApproval ? na : color.new(color.red, 90), title="TOTAL2 Filter")
