@@ -1,0 +1,20 @@
+// === Filtro: sovraperformance vs TOTAL2 (modulante) ===
+total2Close = request.security("CRYPTOCAP:TOTAL2", timeframe.period, close)
+relStrength = close / total2Close
+relStrengthMA = ta.sma(relStrength, 50)
+
+bool outperformFilter = relStrength > relStrengthMA
+
+// Visual
+plot(relStrength,   "Relative Strength vs TOTAL2", color=color.blue)
+plot(relStrengthMA, "RS MA", color=color.orange)
+bgcolor(outperformFilter ? color.new(color.green, 85) : color.new(color.red, 85), title="TOTAL2 Outperformance Filter")
+
+// Uso: cambia la size in base alla performance relativa
+posSize = outperformFilter ? 100 : 50  // 100% equity se sovraperforma, 50% se sottoperforma
+
+if validOpenLongPosition
+    strategy.entry(id = "Long Entry", direction = strategy.long, qty_percent = posSize)
+
+if validOpenShortPosition
+    strategy.entry(id = "Short Entry", direction = strategy.short, qty_percent = posSize)
